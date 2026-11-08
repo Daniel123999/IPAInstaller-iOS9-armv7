@@ -29,11 +29,22 @@ jobs:
           set -euo pipefail
           git clone --depth=1 https://github.com/theos/theos.git "$THEOS"
           mkdir -p "$THEOS/sdks"
-          curl -L --fail -o /tmp/sdks.tar.xz "https://github.com/theos/sdks/archive/refs/heads/master.tar.xz" || true
-          if [ -f /tmp/sdks.tar.xz ]; then
-            tar -xf /tmp/sdks.tar.xz -C /tmp || true
-            if [ -d /tmp/sdks-master ]; then
-              cp -R /tmp/sdks-master/*.sdk "$THEOS/sdks/" 2>/dev/null || true
+          # Try to fetch SDKs (branch name may vary). Fall back to cloning the sdks repo.
+          for url in \
+            "https://github.com/theos/sdks/archive/refs/heads/master.tar.xz" \
+            "https://github.com/theos/sdks/archive/refs/heads/main.tar.xz"; do
+            if curl -L --fail -o /tmp/sdks.tar.xz "$url"; then
+              rm -rf /tmp/sdks-src && mkdir -p /tmp/sdks-src
+              tar -xf /tmp/sdks.tar.xz -C /tmp/sdks-src || true
+              find /tmp/sdks-src -maxdepth 2 -type d -name '*.sdk' -exec cp -R {} "$THEOS/sdks/" \; || true
+              break
+            fi
+          done
+          if [ -z "$(ls -A "$THEOS/sdks" 2>/dev/null)" ]; then
+            echo "SDK tarball unavailable; cloning theos/sdks..."
+            git clone --depth=1 https://github.com/theos/sdks.git /tmp/theos-sdks || true
+            if [ -d /tmp/theos-sdks ]; then
+              find /tmp/theos-sdks -maxdepth 2 -type d -name '*.sdk' -exec cp -R {} "$THEOS/sdks/" \; || true
             fi
           fi
           echo "THEOS=$THEOS" >> "$GITHUB_ENV"
@@ -43,24 +54,25 @@ jobs:
       - name: Build (armv7, iOS 9.0)
         run: |
           set -euo pipefail
-          cd IPAInstaller
-          # Target/ARCHS come from Makefile (iphone:clang:latest:9.0, armv7).
+          # Repo root contains Makefile (project was pushed as root contents).
           make clean package FINALPACKAGE=1 MESSAGE=quiet || make clean package FINALPACKAGE=1
 
       - name: Create unsigned IPA from .app
         run: |
           set -e
-          APP_PATH=$(find IPAInstaller/.theos/_/Applications -name "*.app" -maxdepth 2 | head -n 1)
+          APP_PATH=$(find .theos/_/Applications -name "*.app" -maxdepth 2 2>/dev/null | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "No .app found; listing tree:"; find IPAInstaller/.theos -maxdepth 4; exit 1
+            echo "No .app found; listing tree:"
+            find .theos -maxdepth 4 2>/dev/null || true
+            find . -name "*.app" -maxdepth 5 2>/dev/null || true
+            exit 1
           fi
           echo "Found app: $APP_PATH"
           mkdir -p dist/Payload
           cp -R "$APP_PATH" dist/Payload/
-          cd dist
-          zip -qry IPAInstaller-unsigned.ipa Payload
-          cd ..
-          cp IPAInstaller/packages/*.deb dist/ 2>/dev/null || true
+          (cd dist && zip -qry IPAInstaller-unsigned.ipa Payload)
+          cp packages/*.deb dist/ 2>/dev/null || true
+          find . -name "*.deb" -maxdepth 4 2>/dev/null || true
           ls -la dist
 
       - name: Upload artifacts
