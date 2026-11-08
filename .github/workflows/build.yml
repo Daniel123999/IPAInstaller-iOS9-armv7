@@ -1,0 +1,67 @@
+name: Build IPAInstaller (iOS 9 armv7)
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-13
+    env:
+      THEOS: ${{ github.workspace }}/theos
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install ldid dpkg xz make
+          # fakeroot not required when packaging with dpkg-deb -Zgzip -b in simple cases; Theos can use ldid.
+
+      - name: Install Theos
+        run: |
+          git clone --depth=1 https://github.com/theos/theos.git "$THEOS"
+          # Fetch iOS SDKs bundle (provides older SDK headers). If unavailable, fall back to system SDK with target.
+          mkdir -p "$THEOS/sdks"
+          curl -L --fail -o /tmp/sdks.tar.xz "https://github.com/theos/sdks/archive/refs/heads/master.tar.xz" || true
+          if [ -f /tmp/sdks.tar.xz ]; then
+            tar -xf /tmp/sdks.tar.xz -C /tmp || true
+            if [ -d /tmp/sdks-master ]; then
+              cp -R /tmp/sdks-master/*.sdk "$THEOS/sdks/" 2>/dev/null || true
+            fi
+          fi
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          echo "Available SDKs:"
+          ls "$THEOS/sdks" || true
+
+      - name: Build (armv7, iOS 9.0)
+        run: |
+          cd IPAInstaller
+          # Use latest installed clang/SDK available on runner; target iOS 9.0 armv7 via Makefile.
+          make clean package FINALPACKAGE=1
+
+      - name: Create unsigned IPA from .app
+        run: |
+          set -e
+          APP_PATH=$(find IPAInstaller/.theos/_/Applications -name "*.app" -maxdepth 2 | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app found; listing tree:"; find IPAInstaller/.theos -maxdepth 4; exit 1
+          fi
+          echo "Found app: $APP_PATH"
+          mkdir -p dist/Payload
+          cp -R "$APP_PATH" dist/Payload/
+          cd dist
+          zip -qry IPAInstaller-unsigned.ipa Payload
+          cd ..
+          cp IPAInstaller/packages/*.deb dist/ 2>/dev/null || true
+          ls -la dist
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: IPAInstaller-iOS9-armv7
+          path: |
+            dist/IPAInstaller-unsigned.ipa
+            dist/*.deb
+          if-no-files-found: error

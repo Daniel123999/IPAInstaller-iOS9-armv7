@@ -1,0 +1,8 @@
+Package: com.example.ipainstaller
+Name: IPAInstaller
+Version: 1.0
+Architecture: iphoneos-arm
+Description: 一键安装指定路径 IPA（iOS 9 / armv7）
+Maintainer: me
+Section: Utilities
+Depends: com.autopear.installipa
