@@ -7,7 +7,9 @@ on:
 
 jobs:
   build:
-    runs-on: macos-13
+    # 方案2: switched from macos-13 (often queued) to macos-latest for availability.
+    # Note: macos-latest may be Apple Silicon; Theos+SDK cross-compiling to armv7/iOS9 can be sensitive.
+    runs-on: macos-latest
     env:
       THEOS: ${{ github.workspace }}/theos
     steps:
@@ -16,13 +18,16 @@ jobs:
 
       - name: Install dependencies
         run: |
-          brew install ldid dpkg xz make
-          # fakeroot not required when packaging with dpkg-deb -Zgzip -b in simple cases; Theos can use ldid.
+          set -euo pipefail
+          brew update --quiet || true
+          brew install ldid dpkg xz make gnu-sed coreutils || brew install ldid dpkg xz make
+          echo "runner: $(uname -a)"
+          xcodebuild -version || true
 
       - name: Install Theos
         run: |
+          set -euo pipefail
           git clone --depth=1 https://github.com/theos/theos.git "$THEOS"
-          # Fetch iOS SDKs bundle (provides older SDK headers). If unavailable, fall back to system SDK with target.
           mkdir -p "$THEOS/sdks"
           curl -L --fail -o /tmp/sdks.tar.xz "https://github.com/theos/sdks/archive/refs/heads/master.tar.xz" || true
           if [ -f /tmp/sdks.tar.xz ]; then
@@ -37,9 +42,10 @@ jobs:
 
       - name: Build (armv7, iOS 9.0)
         run: |
+          set -euo pipefail
           cd IPAInstaller
-          # Use latest installed clang/SDK available on runner; target iOS 9.0 armv7 via Makefile.
-          make clean package FINALPACKAGE=1
+          # Target/ARCHS come from Makefile (iphone:clang:latest:9.0, armv7).
+          make clean package FINALPACKAGE=1 MESSAGE=quiet || make clean package FINALPACKAGE=1
 
       - name: Create unsigned IPA from .app
         run: |
