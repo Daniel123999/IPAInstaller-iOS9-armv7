@@ -7,9 +7,8 @@ on:
 
 jobs:
   build:
-    # 方案2: switched from macos-13 (often queued) to macos-latest for availability.
-    # Note: macos-latest may be Apple Silicon; Theos+SDK cross-compiling to armv7/iOS9 can be sensitive.
-    runs-on: macos-latest
+    # macos-13 (Intel) has better compatibility for legacy iOS 9/armv7 toolchains than Apple Silicon runners.
+    runs-on: macos-13
     env:
       THEOS: ${{ github.workspace }}/theos
     steps:
@@ -20,42 +19,54 @@ jobs:
         run: |
           set -euo pipefail
           brew update --quiet || true
-          brew install ldid dpkg xz make gnu-sed coreutils || brew install ldid dpkg xz make
+          brew install ldid dpkg xz make perl || brew install ldid dpkg xz make
           echo "runner: $(uname -a)"
           xcodebuild -version || true
+          which dpkg-deb || true
 
       - name: Install Theos
         run: |
           set -euo pipefail
           git clone --depth=1 https://github.com/theos/theos.git "$THEOS"
-          mkdir -p "$THEOS/sdks"
-          # Try to fetch SDKs (branch name may vary). Fall back to cloning the sdks repo.
-          for url in \
-            "https://github.com/theos/sdks/archive/refs/heads/master.tar.xz" \
-            "https://github.com/theos/sdks/archive/refs/heads/main.tar.xz"; do
-            if curl -L --fail -o /tmp/sdks.tar.xz "$url"; then
-              rm -rf /tmp/sdks-src && mkdir -p /tmp/sdks-src
-              tar -xf /tmp/sdks.tar.xz -C /tmp/sdks-src || true
-              find /tmp/sdks-src -maxdepth 2 -type d -name '*.sdk' -exec cp -R {} "$THEOS/sdks/" \; || true
-              break
-            fi
-          done
-          if [ -z "$(ls -A "$THEOS/sdks" 2>/dev/null)" ]; then
-            echo "SDK tarball unavailable; cloning theos/sdks..."
-            git clone --depth=1 https://github.com/theos/sdks.git /tmp/theos-sdks || true
-            if [ -d /tmp/theos-sdks ]; then
-              find /tmp/theos-sdks -maxdepth 2 -type d -name '*.sdk' -exec cp -R {} "$THEOS/sdks/" \; || true
+          mkdir -p "$THEOS/sdks" "$THEOS/bin"
+          # Theos packaging may require dm.pl
+          if [ ! -x "$THEOS/bin/dm.pl" ]; then
+            DMPL=$(find "$THEOS" -name 'dm.pl' -not -path '*/test/*' | head -n 1 || true)
+            if [ -n "$DMPL" ]; then
+              cp "$DMPL" "$THEOS/bin/dm.pl"
+              chmod +x "$THEOS/bin/dm.pl"
+            else
+              curl -fsSL "https://raw.githubusercontent.com/theos/theos/master/bin/dm.pl" -o "$THEOS/bin/dm.pl" || true
+              chmod +x "$THEOS/bin/dm.pl" || true
             fi
           fi
+          # Fetch SDKs (branch/structure may vary)
+          git clone --depth=1 https://github.com/theos/sdks.git /tmp/theos-sdks || true
+          if [ -d /tmp/theos-sdks ]; then
+            find /tmp/theos-sdks -name '*.sdk' -not -path '*__MACOSX*' -exec cp -R {} "$THEOS/sdks/" \; 2>/dev/null || true
+          fi
+          if [ -z "$(ls -A "$THEOS/sdks" 2>/dev/null)" ]; then
+            for url in \
+              "https://github.com/theos/sdks/archive/refs/heads/master.tar.xz" \
+              "https://github.com/theos/sdks/archive/refs/heads/main.tar.xz"; do
+              if curl -L --fail -o /tmp/sdks.tar.xz "$url"; then
+                rm -rf /tmp/sdks-src && mkdir -p /tmp/sdks-src
+                tar -xf /tmp/sdks.tar.xz -C /tmp/sdks-src || true
+                find /tmp/sdks-src -name '*.sdk' -exec cp -R {} "$THEOS/sdks/" \; 2>/dev/null || true
+                break
+              fi
+            done
+          fi
           echo "THEOS=$THEOS" >> "$GITHUB_ENV"
-          echo "Available SDKs:"
-          ls "$THEOS/sdks" || true
+          echo "Available SDKs:"; ls "$THEOS/sdks" || true
+          echo "dm.pl:"; ls -l "$THEOS/bin/dm.pl" 2>/dev/null || find "$THEOS" -name 'dm.pl' | head || true
 
       - name: Build (armv7, iOS 9.0)
         run: |
           set -euo pipefail
+          export PATH="$THEOS/bin:$PATH"
           # Repo root contains Makefile (project was pushed as root contents).
-          make clean package FINALPACKAGE=1 MESSAGE=quiet || make clean package FINALPACKAGE=1
+          make package FINALPACKAGE=1
 
       - name: Create unsigned IPA from .app
         run: |
