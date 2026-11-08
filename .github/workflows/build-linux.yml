@@ -1,0 +1,81 @@
+name: Build IPAInstaller (Linux Theos)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build-linux.yml'
+      - 'Makefile'
+      - 'IPAInstaller.mm'
+      - 'control'
+      - 'Resources/**'
+      - 'entitlements.plist'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      THEOS: ${{ github.workspace }}/theos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl git perl unzip xz-utils fakeroot libarchive-tools \
+            clang lld python3 rsync
+          # dpkg-deb for manual packaging fallback
+          sudo apt-get install -y dpkg-dev || true
+
+      - name: Install Theos + Linux iOS toolchain + SDK
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/theos/theos.git "$THEOS"
+          # Try to get an iOS toolchain/SDK setup for Linux. This is best-effort.
+          mkdir -p "$THEOS/toolchain/linux/iphone" "$THEOS/sdks"
+          git clone --depth=1 https://github.com/theos/sdks.git /tmp/theos-sdks || true
+          if [ -d /tmp/theos-sdks ]; then
+            # Copy any .sdk directories; also handle archives if present
+            find /tmp/theos-sdks -name '*.sdk' -not -path '*__MACOSX*' -exec cp -R {} "$THEOS/sdks/" \; 2>/dev/null || true
+            find /tmp/theos-sdks -name '*.tar.*' -maxdepth 3 | head -5 | while read f; do
+              mkdir -p /tmp/sdkx && tar -xf "$f" -C /tmp/sdkx 2>/dev/null || true
+              find /tmp/sdkx -name '*.sdk' -exec cp -R {} "$THEOS/sdks/" \; 2>/dev/null || true
+              rm -rf /tmp/sdkx
+            done
+          fi
+          # If still no SDK, try common bundled SDK locations
+          if [ -z "$(ls -A "$THEOS/sdks" 2>/dev/null)" ]; then
+            echo "WARNING: No iOS SDKs found; build will likely fail."
+          fi
+          echo "THEOS=$THEOS" >> "$GITHUB_ENV"
+          echo "SDKs:"; ls "$THEOS/sdks" || true
+          echo "dm.pl:"; find "$THEOS" -name dm.pl | head || true
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          export THEOS="$THEOS"
+          export PATH="$THEOS/bin:$PATH"
+          # Linux cross-builds can be picky; attempt package, fall back to stage+manual .deb
+          make package FINALPACKAGE=1 || (echo "package failed, attempting stage+manual deb" && make stage && mkdir -p packages && dpkg-deb -Zgzip -b "$(pwd)/.theos/_/" "packages/com.example.ipainstaller_1.0_iphoneos-arm.deb")
+
+      - name: Collect artifacts
+        run: |
+          set -e
+          mkdir -p dist
+          APP_PATH=$(find . -path '*/Applications/*.app' -not -path '*/dist/*' | head -n 1 || true)
+          if [ -n "$APP_PATH" ]; then
+            mkdir -p dist/Payload && cp -R "$APP_PATH" dist/Payload/
+            (cd dist && zip -qry IPAInstaller-unsigned.ipa Payload)
+          fi
+          find . -name '*.deb' -not -path '*/dist/*' -exec cp {} dist/ \; || true
+          ls -la dist || true
+          test -n "$(ls -A dist 2>/dev/null)" || (echo "No artifacts produced" && exit 1)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IPAInstaller-iOS9-armv7-linux
+          path: dist/*
+          if-no-files-found: error
