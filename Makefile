@@ -1,5 +1,5 @@
-# 使用 iPhoneOS10.3 SDK（最后支持 armv7 的完整 SDK），部署目标 iOS 9.0
-export TARGET := iphone:clang:10.3:9.0
+# 使用 iPhoneOS9.3 SDK（与设备 iOS 9 一致；需补一个缺失的 liblaunch.tbd 存根），部署目标 iOS 9.0
+export TARGET := iphone:clang:9.3:9.0
 export ARCHS := armv7
 export DEBUG := 0
 

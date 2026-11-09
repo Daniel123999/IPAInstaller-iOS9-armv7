@@ -31,17 +31,20 @@ jobs:
           bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
           echo "toolchain:"; ls "$THEOS/toolchain/linux/iphone/bin" | head || true
 
-      - name: Install iOS SDK (iPhoneOS10.3, armv7 capable)
+      - name: Install iOS 9.3 SDK (armv7 capable, patch missing liblaunch.tbd)
         run: |
           set -euo pipefail
-          # theos/sdks 的 iPhoneOS9.3.sdk 缺少 usr/lib/system/liblaunch.tbd，
-          # 导致 ld 解析 libSystem 再导出时报 "file not found: /usr/lib/system/liblaunch.dylib"。
-          # 改用完整的 iPhoneOS10.3.sdk（同样支持 armv7），部署目标保持 9.0。
+          # install-sdk 不提供 9.3，从 theos/sdks 稀疏拉取。
           rm -rf /tmp/theos-sdks
           git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks.git /tmp/theos-sdks
-          ( cd /tmp/theos-sdks && git sparse-checkout set iPhoneOS10.3.sdk )
-          cp -R /tmp/theos-sdks/iPhoneOS10.3.sdk "$THEOS/sdks/"
-          test -f "$THEOS/sdks/iPhoneOS10.3.sdk/usr/lib/system/liblaunch.tbd"
+          ( cd /tmp/theos-sdks && git sparse-checkout set iPhoneOS9.3.sdk )
+          cp -R /tmp/theos-sdks/iPhoneOS9.3.sdk "$THEOS/sdks/"
+          # 该 SDK 缺少 usr/lib/system/liblaunch.tbd：libSystem 的再导出列表引用它，
+          # 否则 ld 会报 "file not found: /usr/lib/system/liblaunch.dylib"。
+          LAUNCH_TBD="$THEOS/sdks/iPhoneOS9.3.sdk/usr/lib/system/liblaunch.tbd"
+          curl -fsSL "https://raw.githubusercontent.com/theos/sdks/master/iPhoneOS10.3.sdk/usr/lib/system/liblaunch.tbd" -o "$LAUNCH_TBD"
+          test -s "$LAUNCH_TBD"
+          # 注意：不要换用 iPhoneOS10.3.sdk —— 它的 libobjc tbd 缺少 _objc_msgSend_stret，armv7 链接会失败。
           echo "SDKs:"; ls "$THEOS/sdks"
 
       - name: Build and package (.deb)
