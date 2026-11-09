@@ -1,7 +1,7 @@
 name: Build IPAInstaller (Linux Theos, iOS 9 armv7)
 
-# ??:?? Theos ?? Linux ???(?? iOS ???????),? ubuntu ????
-# Linux ?????????????,?? macOS ????????
+# 说明：使用 Theos 官方 Linux 安装器（自带 iOS 交叉编译工具链），在 ubuntu 上构建。
+# Linux 运行器容量充足、几乎不排队，避免 macOS 运行器排队问题。
 
 on:
   workflow_dispatch:
@@ -31,16 +31,17 @@ jobs:
           bash -c "$(curl -fsSL https://raw.githubusercontent.com/theos/theos/master/bin/install-theos)"
           echo "toolchain:"; ls "$THEOS/toolchain/linux/iphone/bin" | head || true
 
-      - name: Install iOS 9.3 SDK (armv7 capable)
+      - name: Install iOS SDK (iPhoneOS10.3, armv7 capable)
         run: |
           set -euo pipefail
-          # install-sdk ??? 9.3,??? theos/sdks ????? SDK
+          # theos/sdks 的 iPhoneOS9.3.sdk 缺少 usr/lib/system/liblaunch.tbd，
+          # 导致 ld 解析 libSystem 再导出时报 "file not found: /usr/lib/system/liblaunch.dylib"。
+          # 改用完整的 iPhoneOS10.3.sdk（同样支持 armv7），部署目标保持 9.0。
           rm -rf /tmp/theos-sdks
           git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks.git /tmp/theos-sdks
-          cd /tmp/theos-sdks
-          git sparse-checkout set iPhoneOS9.3.sdk
-          cd -
-          cp -R /tmp/theos-sdks/iPhoneOS9.3.sdk "$THEOS/sdks/"
+          ( cd /tmp/theos-sdks && git sparse-checkout set iPhoneOS10.3.sdk )
+          cp -R /tmp/theos-sdks/iPhoneOS10.3.sdk "$THEOS/sdks/"
+          test -f "$THEOS/sdks/iPhoneOS10.3.sdk/usr/lib/system/liblaunch.tbd"
           echo "SDKs:"; ls "$THEOS/sdks"
 
       - name: Build and package (.deb)
