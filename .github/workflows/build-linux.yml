@@ -34,7 +34,13 @@ jobs:
       - name: Install iOS 9.3 SDK (armv7 capable)
         run: |
           set -euo pipefail
-          "$THEOS/bin/install-sdk" 9.3
+          # install-sdk ??? 9.3,??? theos/sdks ????? SDK
+          rm -rf /tmp/theos-sdks
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks.git /tmp/theos-sdks
+          cd /tmp/theos-sdks
+          git sparse-checkout set iPhoneOS9.3.sdk
+          cd -
+          cp -R /tmp/theos-sdks/iPhoneOS9.3.sdk "$THEOS/sdks/"
           echo "SDKs:"; ls "$THEOS/sdks"
 
       - name: Build and package (.deb)
