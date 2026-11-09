@@ -9,7 +9,9 @@ APPLICATION_NAME = IPAInstaller
 
 IPAInstaller_FILES = IPAInstaller.mm
 IPAInstaller_INSTALL_PATH = /Applications
-IPAInstaller_ENTITLEMENTS = entitlements.plist
+# Theos 并不认识 xxx_ENTITLEMENTS；要用 ldid 的 -S 把 entitlements 嵌进二进制，
+# 否则应用会在沙盒里以 mobile 身份运行，无法 su root / 执行 ipainstaller。
+IPAInstaller_CODESIGN_FLAGS = -Sentitlements.plist
 IPAInstaller_FRAMEWORKS = UIKit Foundation
 
 include $(THEOS_MAKE_PATH)/application.mk
