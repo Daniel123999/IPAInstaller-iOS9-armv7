@@ -50,7 +50,19 @@ ssh root@<手机IP> "dpkg -i /var/root/com.example.ipainstaller_1.0_iphoneos-arm
 ## 自定义
 - 修改默认路径/配置文件路径/root 密码：编辑 `IPAInstaller.mm` 顶部常量与 `installIPAAtPath:` 中的密码。
 - 修改 Bundle ID / 包名：编辑 `Resources/Info.plist`、`control`、`Makefile`。
-- 目标系统/架构：`Makefile` 中 `TARGET := iphone:clang:latest:9.0` 与 `ARCHS := armv7`。
+- 目标系统/架构：`Makefile` 中 `TARGET := iphone:clang:9.3:9.0` 与 `ARCHS := armv7`。
+
+## 构建实现要点（Linux + Theos，已跑通）
+本项目当前由 `.github/workflows/build-linux.yml` 在 **ubuntu-latest** 上构建（macOS 运行器排队严重，`build.yml` 仅保留手动触发作为备用）：
+
+1. 用 Theos 官方 Linux 安装器装好交叉工具链（`theos/toolchain/linux/iphone`）。
+2. 从 `theos/sdks` 稀疏拉取 **`iPhoneOS9.3.sdk`**（`install-sdk 9.3` 已不再提供该版本）。
+3. **补一个缺失的文件**：该 SDK 缺 `usr/lib/system/liblaunch.tbd`，而 `libSystem` 的再导出列表引用它，否则链接报
+   `ld: file not found: /usr/lib/system/liblaunch.dylib`。workflow 会用 curl 从 10.3 SDK 下载该 `.tbd` 补进去。
+   > 不要直接换用 `iPhoneOS10.3.sdk`：它的 `libobjc` tbd 缺 `_objc_msgSend_stret`，armv7 链接会失败。
+4. entitlements 必须用 `IPAInstaller_CODESIGN_FLAGS = -Sentitlements.plist`（Theos 不认 `xxx_ENTITLEMENTS`），
+   让 `ldid` 把 `platform-application` / `no-sandbox` 嵌进二进制，否则应用会在沙盒里以 mobile 身份运行、`su` 失败。
+5. `make clean package FINALPACKAGE=1` 产出 `.deb`；再从 `.theos/_/Applications/IPAInstaller.app` 打包出未签名 `.ipa`。
 
 ## 安全与免责声明
 - 本工具通过明文密码 `alpine` 管道传给 `su`，仅适用于你自己的越狱测试设备。请勿在不可信设备上使用默认密码。
