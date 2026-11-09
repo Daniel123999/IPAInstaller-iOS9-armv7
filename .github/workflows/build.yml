@@ -1,13 +1,12 @@
 name: Build IPAInstaller (iOS 9 armv7)
 
+# 仅手动触发：macOS 运行器排队严重，避免每次 push 都占用队列。
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
   build:
-    # macos-13 ???????,????;???????? Intel ??? macos-15-intel?
+    # macos-13 已进入退役流程，队列极长；改用官方仍支持的 Intel 运行器 macos-15-intel。
     runs-on: macos-15-intel
     env:
       THEOS: ${{ github.workspace }}/theos
