@@ -1,4 +1,5 @@
-export TARGET := iphone:clang:latest:9.0
+# ???? iOS 9.3 SDK(?? armv7),???? iOS 9.0
+export TARGET := iphone:clang:9.3:9.0
 export ARCHS := armv7
 export DEBUG := 0
 
